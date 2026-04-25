@@ -1,0 +1,6 @@
+body { max-width: 680px; }
+#video {
+  min-height: 260px;
+  object-fit: cover;
+  background: #000;
+}

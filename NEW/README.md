@@ -14,3 +14,9 @@ python app.py
 - Mobile QR trigger route with direct camera capture upload to `/media/book_borrow_transaction_photos/`.
 - Admin dashboard registration-request pipeline and borrowed-book live log chart linked to `proof_image_path`.
 - Sync pop toasts for status changes and Phase 9 date restriction enforcement on extend.
+
+## Static assets and compatibility JSONs
+- Templates now load isolated CSS/JS from `static/css` and `static/js` to avoid inline-script/style conflicts.
+- Legacy JSONs copied for Old/New data compatibility in this folder:
+  - `admins.json`, `books.json`, `categories.json`, `ratings.json`, `system_config.json`, `tickets.json`, `transactions.json`, `legacy_users.json`.
+- Existing runtime JSONs (`users.json`, `registration_requests.json`, `borrow_transactions.json`, `date_restrictions.json`) remain unchanged for app flow compatibility.
