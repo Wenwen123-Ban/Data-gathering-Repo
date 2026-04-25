@@ -1,0 +1,11 @@
+body { min-height: 100vh; }
+.portal-title { font-weight: 700; }
+#reservationTable th,
+#reservationTable td { vertical-align: middle; }
+#notifList {
+  max-height: 440px;
+  overflow-y: auto;
+}
+#notifList .list-group-item {
+  border-left: 4px solid #0d6efd;
+}

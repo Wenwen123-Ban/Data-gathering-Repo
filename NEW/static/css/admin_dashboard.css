@@ -1,0 +1,8 @@
+body { min-height: 100vh; }
+.dashboard-title { font-weight: 700; }
+#rrTable th,
+#rrTable td,
+#logTable th,
+#logTable td { vertical-align: middle; }
+#logTable td:last-child,
+#rrTable td:last-child { white-space: nowrap; }

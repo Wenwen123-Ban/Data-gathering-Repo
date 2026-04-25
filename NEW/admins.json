@@ -1,0 +1,11 @@
+[
+    {
+        "name": "System Administrator",
+        "school_id": "admin",
+        "password": "admin",
+        "category": "Staff",
+        "photo": "default.png",
+        "status": "approved",
+        "created_at": "SYSTEM_INIT"
+    }
+]
