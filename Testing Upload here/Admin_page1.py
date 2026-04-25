@@ -28,13 +28,21 @@ logging.basicConfig(
 logger = logging.getLogger("LBAS_Command_Center")
 
 PROFILE_FOLDER = "Profile"
+BORROW_PHOTO_FOLDER = os.path.join("media", "book_borrow_transaction_photos")
 app.config["UPLOAD_FOLDER"] = PROFILE_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 app.config["JSONIFY_PRETTYPRINT_REGULAR"] = True
+app.config["BORROW_PHOTO_FOLDER"] = BORROW_PHOTO_FOLDER
 
 if not os.path.exists(PROFILE_FOLDER):
     os.makedirs(PROFILE_FOLDER)
     logger.info(f"SYSTEM INIT: Created secure profile storage at ./{PROFILE_FOLDER}")
+
+if not os.path.exists(BORROW_PHOTO_FOLDER):
+    os.makedirs(BORROW_PHOTO_FOLDER, exist_ok=True)
+    logger.info(
+        f"SYSTEM INIT: Created transaction evidence storage at ./{BORROW_PHOTO_FOLDER}"
+    )
 
 # Database Map: Full restoration of all required DBs
 DB_FILES = {
@@ -46,6 +54,9 @@ DB_FILES = {
     "config": "system_config.json",
     "tickets": "tickets.json",  # Password Recovery Registry
     "categories": "categories.json",
+    "registration_requests": "registration_requests.json",
+    "borrow_transactions": "borrow_transactions.json",
+    "notifications": "notifications.json",
 }
 
 ACTIVE_SESSIONS = {}
@@ -63,6 +74,10 @@ def initialize_system():
                 }
             elif key == "categories":
                 initial_data = ["General", "Mathematics", "Science", "Literature"]
+            elif key == "borrow_transactions":
+                initial_data = []
+            elif key == "notifications":
+                initial_data = []
             else:
                 initial_data = []
             with open(file_path, "w", encoding="utf-8") as f:
@@ -78,8 +93,48 @@ def initialize_system():
         if "status" not in u:
             u["status"] = "approved"
             changed = True
+        u.setdefault("is_staff", False)
+        u.setdefault("phone_number", "")
+        u.setdefault("email", "")
+        u.setdefault("year_level", "")
+        u.setdefault("school_level", "")
+        u.setdefault("course", "")
     if changed:
         save_db("users", users)
+
+    books = get_db("books")
+    books_changed = False
+    for b in books:
+        if "title" not in b:
+            b["title"] = ""
+            books_changed = True
+        if "status" not in b:
+            b["status"] = "Available"
+            books_changed = True
+        if "category" not in b:
+            b["category"] = "General"
+            books_changed = True
+    if books_changed:
+        save_db("books", books)
+
+    txs = get_db("transactions")
+    txs_changed = False
+    for t in txs:
+        t.setdefault("transaction_id", str(uuid.uuid4())[:12])
+        t.setdefault("title", "")
+        t.setdefault("borrower_name", t.get("school_id", ""))
+        t.setdefault("pickup_schedule", "")
+        t.setdefault("pickup_location", "")
+        t.setdefault("reservation_note", "")
+        t.setdefault("phone_number", "")
+        t.setdefault("contact_type", "")
+        t.setdefault("request_id", str(uuid.uuid4())[:12])
+        t.setdefault("approved_by", "")
+        t.setdefault("borrow_photo_path", "")
+        t.setdefault("return_date", "")
+        txs_changed = True
+    if txs_changed:
+        save_db("transactions", txs)
 
     # Ensure Root Admin exists
     admins = get_db("admins")
@@ -93,9 +148,26 @@ def initialize_system():
                 "photo": "default.png",
                 "status": "approved",
                 "created_at": "SYSTEM_INIT",
+                "is_staff": True,
             }
         )
         save_db("admins", admins)
+
+
+def create_notification(recipient_school_id, kind, message, meta=None):
+    notifications = get_db("notifications")
+    notifications.append(
+        {
+            "notification_id": str(uuid.uuid4())[:12],
+            "recipient_school_id": str(recipient_school_id or "").strip().lower(),
+            "kind": kind,
+            "message": message,
+            "meta": meta or {},
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "seen": False,
+        }
+    )
+    save_db("notifications", notifications)
 
 
 def get_db(key):
@@ -247,6 +319,12 @@ def lbas_site():
 def tablet_kiosk():
     """Restored Kiosk Mode for Library Tablet"""
     return render_template("user_tablet.html")
+
+
+@app.route("/user-management")
+def user_management_page():
+    """Restored user management shell (renamed from user_tablet.html)."""
+    return render_template("user_management.html")
 
 
 @app.route("/audit_users")
@@ -439,20 +517,29 @@ def api_reg_student():
                 photo.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
                 saved_photo = filename
 
-        users = get_db("users")
-        users.append(
+        requests_db = get_db("registration_requests")
+        request_id = f"REG-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:6].upper()}"
+        requests_db.append(
             {
+                "request_id": request_id,
+                "request_number": str(len(requests_db) + 1).zfill(4),
                 "name": name,
                 "school_id": s_id,
                 "password": password,
+                "year_level": request.form.get("year_level", "").strip(),
+                "school_level": request.form.get("school_level", "").strip(),
+                "course": request.form.get("course", "").strip(),
+                "phone_number": request.form.get("phone_number", "").strip(),
+                "email": request.form.get("email", "").strip(),
                 "category": "Student",
                 "photo": saved_photo,
                 "status": "pending",
+                "reviewed_by": "",
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             }
         )
-        save_db("users", users)
-        return jsonify({"success": True})
+        save_db("registration_requests", requests_db)
+        return jsonify({"success": True, "request_id": request_id})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
 
@@ -617,6 +704,11 @@ def api_get_users():
     return jsonify(get_db("users"))
 
 
+@app.route("/api/registration_requests")
+def api_get_registration_requests():
+    return jsonify(get_db("registration_requests"))
+
+
 @app.route("/api/admins")
 def api_get_admins():
     return jsonify(get_db("admins"))
@@ -704,11 +796,47 @@ def api_delete_member():
 @app.route("/api/approve_user", methods=["POST"])
 def api_approve_user():
     data = request.json
-    users = get_db("users")
-    for u in users:
-        if u["school_id"] == data["school_id"]:
-            u["status"] = "approved"
-            save_db("users", users)
+    school_id = str(data.get("school_id", "")).strip().lower()
+    approver = str(data.get("approved_by", "librarian")).strip() or "librarian"
+    pending = get_db("registration_requests")
+    for request_row in pending:
+        if str(request_row.get("school_id", "")).strip().lower() == school_id and str(
+            request_row.get("status", "")
+        ).lower() == "pending":
+            request_row["status"] = "approved"
+            request_row["reviewed_by"] = approver
+            request_row["reviewed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            users = get_db("users")
+            if not any(
+                str(u.get("school_id", "")).strip().lower() == school_id for u in users
+            ):
+                users.append(
+                    {
+                        "name": request_row.get("name", ""),
+                        "school_id": school_id,
+                        "password": request_row.get("password", ""),
+                        "category": "Student",
+                        "photo": request_row.get("photo", "default.png"),
+                        "status": "approved",
+                        "created_at": request_row.get(
+                            "created_at", datetime.now().strftime("%Y-%m-%d %H:%M")
+                        ),
+                        "year_level": request_row.get("year_level", ""),
+                        "school_level": request_row.get("school_level", ""),
+                        "course": request_row.get("course", ""),
+                        "phone_number": request_row.get("phone_number", ""),
+                        "email": request_row.get("email", ""),
+                        "is_staff": False,
+                    }
+                )
+                save_db("users", users)
+            save_db("registration_requests", pending)
+            create_notification(
+                school_id,
+                "registration",
+                f"Your library account was approved by {approver}.",
+                {"approved_by": approver},
+            )
             return jsonify({"success": True})
     return jsonify({"success": False}), 404
 
@@ -716,9 +844,28 @@ def api_approve_user():
 @app.route("/api/reject_user", methods=["POST"])
 def api_reject_user():
     data = request.json
-    users = [u for u in get_db("users") if u["school_id"] != data["school_id"]]
-    save_db("users", users)
-    return jsonify({"success": True})
+    school_id = str(data.get("school_id", "")).strip().lower()
+    reviewer = str(data.get("approved_by", "librarian")).strip() or "librarian"
+    pending = get_db("registration_requests")
+    changed = False
+    for request_row in pending:
+        if str(request_row.get("school_id", "")).strip().lower() == school_id and str(
+            request_row.get("status", "")
+        ).lower() == "pending":
+            request_row["status"] = "rejected"
+            request_row["reviewed_by"] = reviewer
+            request_row["reviewed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            changed = True
+            create_notification(
+                school_id,
+                "registration",
+                f"Your account request was rejected by {reviewer}.",
+                {"reviewed_by": reviewer},
+            )
+            break
+    if changed:
+        save_db("registration_requests", pending)
+    return jsonify({"success": changed})
 
 
 @app.route("/api/process_transaction", methods=["POST"])
@@ -731,6 +878,7 @@ def api_process_trans():
     b_no = data.get("book_no")
     action = data.get("action")  # 'borrow' or 'return'
     s_id = str(data.get("school_id", "")).strip().lower()
+    approved_by = str(data.get("approved_by", "")).strip()
 
     books = get_db("books")
     transactions = get_db("transactions")
@@ -769,14 +917,34 @@ def api_process_trans():
             # Create Borrow Record
             transactions.append(
                 {
+                    "transaction_id": str(uuid.uuid4())[:12],
                     "book_no": b_no,
+                    "title": target_book.get("title", ""),
                     "school_id": s_id,
+                    "borrower_name": (
+                        find_any_user(s_id) or {}
+                    ).get("name", s_id),
                     "status": "Borrowed",
                     "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "expiry": (datetime.now() + timedelta(days=7)).strftime(
                         "%Y-%m-%d %H:%M"
                     ),  # 7 Day Loan
+                    "approved_by": approved_by,
+                    "pickup_schedule": "",
+                    "pickup_location": "",
+                    "reservation_note": "",
+                    "phone_number": "",
+                    "contact_type": "",
+                    "request_id": str(uuid.uuid4())[:12],
+                    "borrow_photo_path": "",
+                    "return_date": "",
                 }
+            )
+            create_notification(
+                s_id,
+                "borrow",
+                f"Book {b_no} was approved for borrowing by {approved_by or 'Librarian'}.",
+                {"book_no": b_no, "approved_by": approved_by or "Librarian"},
             )
         else:
             return jsonify({"success": False, "message": "Book Unavailable"}), 400
@@ -857,15 +1025,28 @@ def api_reserve():
     for b in books:
         if b["book_no"] == b_no and b["status"] == "Available":
             b["status"] = "Reserved"
+            request_id = str(data.get("request_id") or str(uuid.uuid4())[:12])
             transactions.append(
                 {
+                    "transaction_id": str(uuid.uuid4())[:12],
                     "book_no": b_no,
+                    "title": b.get("title", ""),
                     "school_id": s_id,
+                    "borrower_name": (find_any_user(s_id) or {}).get("name", s_id),
                     "status": "Reserved",
                     "date": now.strftime("%Y-%m-%d %H:%M"),
                     "expiry": (now + timedelta(minutes=30)).strftime(
                         "%Y-%m-%d %H:%M"
                     ),
+                    "pickup_schedule": str(data.get("pickup_schedule", "")).strip(),
+                    "pickup_location": str(data.get("pickup_location", "")).strip(),
+                    "reservation_note": str(data.get("reservation_note", "")).strip(),
+                    "phone_number": str(data.get("phone_number", "")).strip(),
+                    "contact_type": str(data.get("contact_type", "")).strip(),
+                    "request_id": request_id,
+                    "approved_by": "",
+                    "borrow_photo_path": "",
+                    "return_date": "",
                 }
             )
             save_db("books", books)
@@ -877,6 +1058,116 @@ def api_reserve():
         save_db("transactions", transactions)
 
     return jsonify({"success": False, "message": "Unavailable"})
+
+
+@app.route("/api/cancel_reservation", methods=["POST"])
+def api_cancel_reservation():
+    data = request.json or {}
+    b_no = str(data.get("book_no", "")).strip()
+    s_id = str(data.get("school_id", "")).strip().lower()
+    request_id = str(data.get("request_id", "")).strip()
+    if not b_no:
+        return jsonify({"success": False, "message": "Missing book_no"}), 400
+
+    books = get_db("books")
+    transactions = get_db("transactions")
+    changed = False
+    for t in transactions:
+        if str(t.get("book_no", "")).strip() != b_no:
+            continue
+        if str(t.get("status", "")).lower() not in ("reserved",):
+            continue
+        if request_id and str(t.get("request_id", "")) != request_id:
+            continue
+        if s_id and str(t.get("school_id", "")).lower() != s_id:
+            continue
+        t["status"] = "Cancelled"
+        changed = True
+        create_notification(
+            t.get("school_id", ""),
+            "reservation",
+            f"Reservation for {b_no} was cancelled.",
+            {"book_no": b_no},
+        )
+        break
+
+    if not changed:
+        return jsonify({"success": False, "message": "No active reservation found"}), 404
+
+    still_reserved = any(
+        str(t.get("book_no", "")) == b_no and str(t.get("status", "")).lower() == "reserved"
+        for t in transactions
+    )
+    for b in books:
+        if str(b.get("book_no", "")) == b_no:
+            b["status"] = "Reserved" if still_reserved else "Available"
+            break
+    save_db("transactions", transactions)
+    save_db("books", books)
+    return jsonify({"success": True})
+
+
+@app.route("/api/extend_borrow", methods=["POST"])
+def api_extend_borrow():
+    data = request.json or {}
+    b_no = str(data.get("book_no", "")).strip()
+    s_id = str(data.get("school_id", "")).strip().lower()
+    extra_days = int(data.get("extra_days", 2) or 2)
+    extra_days = max(1, min(extra_days, 7))
+    txs = get_db("transactions")
+
+    for t in reversed(txs):
+        if str(t.get("book_no", "")).strip() != b_no:
+            continue
+        if str(t.get("status", "")).lower() != "borrowed":
+            continue
+        if s_id and str(t.get("school_id", "")).strip().lower() != s_id:
+            continue
+        base_dt = _parse_transaction_date(t.get("expiry")) or datetime.now()
+        t["expiry"] = (base_dt + timedelta(days=extra_days)).strftime("%Y-%m-%d %H:%M")
+        save_db("transactions", txs)
+        create_notification(
+            t.get("school_id", ""),
+            "borrow",
+            f"Borrow extension approved for {b_no} (+{extra_days} days).",
+            {"book_no": b_no, "extra_days": extra_days},
+        )
+        return jsonify({"success": True, "new_expiry": t["expiry"]})
+    return jsonify({"success": False, "message": "No borrowed record found"}), 404
+
+
+@app.route("/api/upload_borrow_evidence", methods=["POST"])
+def api_upload_borrow_evidence():
+    transaction_id = str(request.form.get("transaction_id", "")).strip()
+    photo = request.files.get("photo")
+    if not transaction_id or not photo or not photo.filename:
+        return jsonify({"success": False, "message": "Missing transaction_id/photo"}), 400
+
+    ext = os.path.splitext(photo.filename)[1].lower() or ".jpg"
+    filename = secure_filename(f"{transaction_id}_{int(datetime.now().timestamp())}{ext}")
+    save_path = os.path.join(app.config["BORROW_PHOTO_FOLDER"], filename)
+    photo.save(save_path)
+    relative_path = f"/media/book_borrow_transaction_photos/{filename}"
+
+    txs = get_db("transactions")
+    linked = False
+    for t in txs:
+        if str(t.get("transaction_id", "")) == transaction_id:
+            t["borrow_photo_path"] = relative_path
+            linked = True
+            break
+    save_db("transactions", txs)
+
+    borrow_txs = get_db("borrow_transactions")
+    borrow_txs.append(
+        {
+            "transaction_id": transaction_id,
+            "photo_path": relative_path,
+            "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    )
+    save_db("borrow_transactions", borrow_txs)
+    return jsonify({"success": True, "photo_path": relative_path, "linked": linked})
 
 
 @app.route("/dev/analysis")
@@ -1197,12 +1488,60 @@ def api_leaderboard_profile(school_id):
     return jsonify({"success": True, "profile": match})
 
 
+@app.route("/api/notifications/<school_id>")
+def api_user_notifications(school_id):
+    lookup = str(school_id or "").strip().lower()
+    notifications = [
+        n
+        for n in get_db("notifications")
+        if str(n.get("recipient_school_id", "")).strip().lower() == lookup
+    ]
+    notifications.sort(key=lambda n: str(n.get("created_at", "")), reverse=True)
+    return jsonify(notifications)
+
+
+@app.route("/api/notifications/mark_seen", methods=["POST"])
+def api_mark_notifications_seen():
+    data = request.json or {}
+    school_id = str(data.get("school_id", "")).strip().lower()
+    notifications = get_db("notifications")
+    for n in notifications:
+        if str(n.get("recipient_school_id", "")).strip().lower() == school_id:
+            n["seen"] = True
+    save_db("notifications", notifications)
+    return jsonify({"success": True})
+
+
+@app.route("/api/pulse")
+def api_pulse():
+    sid = str(request.args.get("school_id", "")).strip().lower()
+    pending_requests = [
+        r for r in get_db("registration_requests") if str(r.get("status", "")).lower() == "pending"
+    ]
+    payload = {"pending_requests": len(pending_requests), "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    if sid:
+        payload["unseen_notifications"] = len(
+            [
+                n
+                for n in get_db("notifications")
+                if str(n.get("recipient_school_id", "")).lower() == sid
+                and not bool(n.get("seen"))
+            ]
+        )
+    return jsonify(payload)
+
+
 @app.route("/Profile/<path:filename>")
 def serve_file(filename):
     try:
         return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
     except:
         return send_from_directory(app.config["UPLOAD_FOLDER"], "default.png")
+
+
+@app.route("/media/book_borrow_transaction_photos/<path:filename>")
+def serve_borrow_evidence(filename):
+    return send_from_directory(app.config["BORROW_PHOTO_FOLDER"], filename)
 
 
 if __name__ == "__main__":

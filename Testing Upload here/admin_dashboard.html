@@ -541,7 +541,7 @@
         <div id="authStatusBadge" class="alert alert-dark border-0 small text-center fw-bold opacity-75 rounded-4">
             <i class="fas fa-shield-alt me-2"></i>SECURE MODE
         </div>
-        <small class="text-white-50 d-block text-center mt-2" style="font-size: 0.7rem;">IP: 10.34.153.190 (Plan A)</small>
+        <small class="text-white-50 d-block text-center mt-2" style="font-size: 0.7rem;" id="localIpBanner">Host: 192.168.x.x:8000</small>
     </div>
 </div>
 
@@ -672,6 +672,23 @@
                 </table>
             </div>
         </div>
+
+        <div class="card glass-card mt-4 p-4 border-top border-4 border-info">
+            <h5 class="fw-bold mb-3"><i class="fas fa-camera text-info me-2"></i>Mobile Visual Evidence Module</h5>
+            <p class="small text-muted mb-3">Capture/upload proof-of-borrow image and link it to a transaction ID.</p>
+            <div class="row g-2">
+                <div class="col-md-4">
+                    <input id="evidenceTxId" class="form-control" placeholder="Transaction ID">
+                </div>
+                <div class="col-md-5">
+                    <input id="evidencePhoto" class="form-control" type="file" accept="image/*" capture="environment">
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-info w-100 fw-bold" onclick="uploadBorrowEvidence()">Upload Evidence</button>
+                </div>
+            </div>
+            <div id="evidenceStatus" class="small mt-2 text-muted"></div>
+        </div>
     </div>
 
     <div id="requestsView" class="view-section">
@@ -787,6 +804,7 @@
         </div>
     </div>
 </div>
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="pulseToasts" style="z-index:11000;"></div>
 
 <div class="modal fade" id="leaderboardProfileModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -878,13 +896,15 @@
         activeFilterCat = 'All',
         categoryToDelete = null,
         staffSessionID = localStorage.getItem('adminSchoolId') || '',
-        staffSessionToken = localStorage.getItem('adminToken') || '';
+        staffSessionToken = localStorage.getItem('adminToken') || '',
+        lastPulsePending = -1;
 
     const editModal = new bootstrap.Modal(document.getElementById('editModal'));
     const leaderboardProfileModal = new bootstrap.Modal(document.getElementById('leaderboardProfileModal'));
 
     window.onload = () => {
         mountAdminDropdown();
+        document.getElementById('localIpBanner').innerText = `Host: ${location.host} (share this local IP)`;
         if(localStorage.getItem('isStaffAuth') === 'true') {
             executeUnlock(localStorage.getItem('adminName'), localStorage.getItem('adminPhoto'), localStorage.getItem('adminSchoolId'), localStorage.getItem('adminToken'));
         }
@@ -893,25 +913,27 @@
         setInterval(() => {
             loadData(false);
         }, 10000);
+        setInterval(pollPulse, 5000);
     };
 
     async function loadData(resetFilter = false) {
         try {
             const preservedFilterCat = activeFilterCat;
-            const [bRes, uRes, aRes, tRes] = await Promise.all([
+            const [bRes, uRes, aRes, tRes, rRes] = await Promise.all([
                 fetch('/api/books'),
                 fetch('/api/users'), 
                 fetch('/api/admins'),
-                fetch('/api/transactions')
+                fetch('/api/transactions'),
+                fetch('/api/registration_requests')
             ]);
             
             masterBooks = await bRes.json();
             const allUsers = await uRes.json();
             masterAdmins = await aRes.json();
             masterTransactions = await tRes.json();
+            pendingRequests = (await rRes.json()).filter(r => (r.status || '').toLowerCase() === 'pending');
             
             masterUsers = allUsers.filter(u => u.status !== 'pending');
-            pendingRequests = allUsers.filter(u => u.status === 'pending');
 
             document.getElementById('syncDot').classList.add('sync-online');
             document.getElementById('systemStateText').innerText = "Live & Synced";
@@ -1341,6 +1363,50 @@
         if (!card) return;
         card.classList.toggle('active');
         if (card.classList.contains('active')) updateAdminDropdownPosition();
+    }
+
+    async function uploadBorrowEvidence() {
+        const txId = document.getElementById('evidenceTxId').value.trim();
+        const file = document.getElementById('evidencePhoto').files[0];
+        const status = document.getElementById('evidenceStatus');
+        if (!txId || !file) {
+            status.innerText = 'Transaction ID and photo are required.';
+            return;
+        }
+        const fd = new FormData();
+        fd.append('transaction_id', txId);
+        fd.append('photo', file);
+        const res = await fetch('/api/upload_borrow_evidence', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.success) {
+            status.innerText = `Saved: ${data.photo_path}`;
+            toastPulse(`Evidence linked to transaction ${txId}`);
+            addHistory(`Evidence uploaded: ${txId}`);
+            loadData(false);
+        } else {
+            status.innerText = data.message || 'Upload failed.';
+        }
+    }
+
+    async function pollPulse() {
+        try {
+            const res = await fetch('/api/pulse');
+            const pulse = await res.json();
+            if (lastPulsePending >= 0 && pulse.pending_requests > lastPulsePending) {
+                toastPulse(`New request received (${pulse.pending_requests} pending).`);
+            }
+            lastPulsePending = pulse.pending_requests;
+        } catch (e) {}
+    }
+
+    function toastPulse(message) {
+        const host = document.getElementById('pulseToasts');
+        const id = `toast-${Date.now()}`;
+        host.insertAdjacentHTML('beforeend', `<div id="${id}" class="toast text-bg-dark border-0"><div class="d-flex"><div class="toast-body"><i class="fas fa-bell me-2 text-warning"></i>${message}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>`);
+        const el = document.getElementById(id);
+        const t = new bootstrap.Toast(el, { delay: 3500 });
+        t.show();
+        el.addEventListener('hidden.bs.toast', () => el.remove());
     }
 
     function setRole(role) { currentRole = role; document.getElementById('btnStudent').classList.toggle('active', role === 'student'); document.getElementById('btnAdmin').classList.toggle('active', role === 'admin'); }
