@@ -1,8 +1,10 @@
 from __future__ import annotations
 import uuid
+import os
 from datetime import datetime, timedelta
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
 from core.models import Transaction, Book, UserProfile
 from .utils import parse_json_body, require_auth, require_admin, unauth
 
@@ -237,3 +239,87 @@ def api_cancel_reservation(request):
     if cancelled_json:
         return JsonResponse({'success': True})
     return JsonResponse({'success': False, 'message': 'No active reservation found'}, status=404)
+
+
+@csrf_exempt
+def api_extend_borrow(request):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    if not require_auth(request):
+        return unauth()
+
+    data = parse_json_body(request)
+    book_no = str(data.get('book_no', '')).strip()
+    school_id = str(data.get('school_id', '')).strip().lower()
+    extra_days = int(data.get('extra_days', 2) or 2)
+    extra_days = max(1, min(extra_days, 7))
+
+    if not book_no:
+        return JsonResponse({'success': False, 'message': 'Book number is required.'}, status=400)
+
+    tx = Transaction.objects.filter(book_no=book_no, status='Borrowed').order_by('-date').first()
+    if not tx:
+        return JsonResponse({'success': False, 'message': 'No active borrowed record found.'}, status=404)
+    if school_id and str(tx.school_id).strip().lower() != school_id:
+        return JsonResponse({'success': False, 'message': 'Borrowed record does not match this user.'}, status=403)
+
+    baseline = tx.expiry or (datetime.now().date() + timedelta(days=2))
+    tx.expiry = baseline + timedelta(days=extra_days)
+    tx.save(update_fields=['expiry'])
+
+    from .store import jread, jwrite
+    txs_json = jread('transactions')
+    updated = False
+    for row in txs_json:
+        if str(row.get('book_no', '')).strip() != book_no:
+            continue
+        if str(row.get('status', '')).strip().lower() != 'borrowed':
+            continue
+        row_school = str(row.get('school_id', '')).strip().lower()
+        if school_id and row_school != school_id:
+            continue
+        row['expiry'] = tx.expiry.isoformat()
+        updated = True
+        break
+    if updated:
+        jwrite('transactions', txs_json)
+
+    return JsonResponse({
+        'success': True,
+        'book_no': book_no,
+        'expiry': tx.expiry.isoformat(),
+        'extra_days': extra_days
+    })
+
+
+@csrf_exempt
+def api_upload_borrow_proof(request):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    if not require_auth(request):
+        return unauth()
+
+    image_file = request.FILES.get('photo')
+    book_no = str(request.POST.get('book_no', '')).strip() or 'UNKNOWN'
+    school_id = str(request.POST.get('school_id', '')).strip() or 'UNKNOWN'
+    if not image_file:
+        return JsonResponse({'success': False, 'message': 'No photo provided.'}, status=400)
+
+    proof_folder = os.path.join(settings.MEDIA_ROOT, 'book_borrow_transaction_photos')
+    os.makedirs(proof_folder, exist_ok=True)
+
+    ext = os.path.splitext(image_file.name)[1].lower() or '.jpg'
+    safe_book = ''.join(ch for ch in book_no if ch.isalnum() or ch in ('-', '_')) or 'BOOK'
+    safe_user = ''.join(ch for ch in school_id if ch.isalnum() or ch in ('-', '_')) or 'USER'
+    filename = f'borrow_{safe_book}_{safe_user}_{datetime.now().strftime("%Y%m%d%H%M%S")}{ext}'
+    output_path = os.path.join(proof_folder, filename)
+
+    with open(output_path, 'wb+') as destination:
+        for chunk in image_file.chunks():
+            destination.write(chunk)
+
+    return JsonResponse({
+        'success': True,
+        'photo': f'book_borrow_transaction_photos/{filename}',
+        'url': f'{settings.MEDIA_URL}book_borrow_transaction_photos/{filename}'
+    })

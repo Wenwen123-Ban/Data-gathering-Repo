@@ -1294,3 +1294,60 @@ nav .nav-link:hover {
 #editModal .btn-close {
     filter: invert(1) !important;
 }
+
+/* OLD → NEW glassmorphism palette upgrade */
+:root {
+    --kiosk-primary: #0f172a;
+    --kiosk-accent: #ffd54f;
+    --kiosk-bg: #f1f5f9;
+    --glass-strong: rgba(0, 0, 0, 0.65);
+    --glass-border: rgba(255, 255, 255, 0.3);
+}
+
+.sidebar,
+.glass-card,
+.admin-gate-panel {
+    background: var(--glass-strong) !important;
+    border: 1px solid var(--glass-border) !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+/* Kiosk/touch-friendly user management buttons while preserving CSS grid layout */
+#usersView .btn,
+#usersView .form-control,
+#usersView .form-select,
+#registrationRequestsView .btn,
+#inventoryView .btn {
+    min-height: 48px;
+    border-radius: 14px;
+    font-weight: 700;
+}
+
+@media (max-width: 768px) {
+    #usersView .table-responsive table,
+    #inventoryView .table-responsive table {
+        min-width: 760px;
+    }
+    .nav-link {
+        min-height: 52px;
+    }
+}
+
+/* Pulse notifications: transform/opacity animation only for lower-end hardware */
+.pulse-notification {
+    background: rgba(15, 23, 42, 0.94);
+    color: #f8fafc;
+    border: 1px solid rgba(255, 213, 79, 0.55);
+    border-radius: 12px;
+    padding: 10px 14px;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.32);
+    animation: pulse-toast 1.2s ease-in-out 2;
+}
+
+@keyframes pulse-toast {
+    0% { opacity: 0; transform: translateY(10px) scale(0.98); }
+    30% { opacity: 1; transform: translateY(0) scale(1); }
+    60% { opacity: 1; transform: translateY(0) scale(1.01); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+}

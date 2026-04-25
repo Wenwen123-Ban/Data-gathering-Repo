@@ -5,6 +5,7 @@ let currentID = null;
       let leaderboardProfileModal = null;
       let dataInterval = null;
       let timerInterval = null;
+      let syncInterval = null;
       const DEFAULT_DESKTOP_BOOK_LIMIT = 20;
       const DEFAULT_MOBILE_BOOK_LIMIT = 10;
       const MAX_ACTIVE_RESERVATIONS = 5;
@@ -19,6 +20,7 @@ let currentID = null;
       let allCollectionOrder = [];
       let categoryCollectionOrder = {};
       let lbasInitialized = false;
+      let lastSyncFingerprint = null;
       let hasShownSessionNotice = false;
       let accountSwipeStartX = null;
       let accountSwipeStartY = null;
@@ -267,7 +269,8 @@ let currentID = null;
                         : getNormalizedStatus(lease) === "unavailable"
                           ? `<span class="small fw-bold text-danger d-block">Book is no longer available (borrowed by another user)</span><span class="small text-muted d-block">Borrowed by: ${lease.borrowed_by || "Unknown user"}</span><span class="small text-muted d-block">Picked up at: ${formatPickupDateTime(lease.pickup_at)}</span><span class="small text-muted d-block">Picked up: ${formatPickupDateTime(lease.pickup_at)}</span>`
                           : `<span class="timer small fw-bold d-block" data-expiry="${lease.expiry}" data-status="${lease.status}" data-book-no="${lease.book_no}">Calculating...</span>`}
-                    ${["reserved","unavailable","missed"].includes(getNormalizedStatus(lease)) ? `<button class="btn btn-sm btn-outline-danger rounded-pill mt-1 cancel-reservation-btn" onclick="cancelReservation('${lease.book_no}')">Remove Reservation List</button>` : ""}
+                    ${getNormalizedStatus(lease) === "borrowed" ? `<button class="btn btn-sm btn-outline-warning mt-1 reservation-action-btn" onclick="extendBorrowLease('${lease.book_no}')">Extend (+2 days)</button>` : ""}
+                    ${["reserved","unavailable","missed","borrowed"].includes(getNormalizedStatus(lease)) ? `<button class="btn btn-sm btn-outline-danger mt-1 reservation-action-btn cancel-reservation-btn" onclick="cancelReservation('${lease.book_no}')">${getNormalizedStatus(lease) === "borrowed" ? "Cancel / Release" : "Cancel Reservation"}</button>` : ""}
                   </div>
                 </div>`,
             )
@@ -652,6 +655,54 @@ let currentID = null;
         toggleModal("statusModal", true);
       }
 
+      function ensureSyncToastHost() {
+        let host = document.getElementById("lbasSyncToastHost");
+        if (host) return host;
+        host = document.createElement("div");
+        host.id = "lbasSyncToastHost";
+        host.style.position = "fixed";
+        host.style.right = "16px";
+        host.style.bottom = "16px";
+        host.style.zIndex = "9999";
+        host.style.display = "grid";
+        host.style.gap = "8px";
+        document.body.appendChild(host);
+        return host;
+      }
+
+      function showPulseToast(message) {
+        const host = ensureSyncToastHost();
+        const toast = document.createElement("div");
+        toast.className = "pulse-notification";
+        toast.textContent = message;
+        host.appendChild(toast);
+        setTimeout(() => toast.remove(), 2600);
+      }
+
+      async function checkSynchronization() {
+        try {
+          const [books, txs] = await Promise.all([
+            fetch("/api/books").then((r) => r.json()).catch(() => []),
+            fetch("/api/transactions", { headers: currentToken ? { Authorization: currentToken } : {} })
+              .then((r) => (r.ok ? r.json() : []))
+              .catch(() => []),
+          ]);
+          const txArray = parseTransactionPayload(txs);
+          const fingerprint = JSON.stringify({
+            books: Array.isArray(books) ? books.length : 0,
+            txs: Array.isArray(txArray) ? txArray.length : 0,
+            last: Array.isArray(txArray) ? (txArray[0]?.request_id || txArray[0]?.book_no || "") : "",
+          });
+          if (lastSyncFingerprint && lastSyncFingerprint !== fingerprint) {
+            showPulseToast("Pulse Notification: JSON data updated.");
+            loadData();
+          }
+          lastSyncFingerprint = fingerprint;
+        } catch (error) {
+          console.warn("checkSynchronization failed", error);
+        }
+      }
+
       function escapeHtmlAttr(value) {
         return String(value)
           .replace(/&/g, "&amp;")
@@ -772,6 +823,7 @@ let currentID = null;
 
         if (dataInterval) clearInterval(dataInterval);
         if (timerInterval) clearInterval(timerInterval);
+        if (syncInterval) clearInterval(syncInterval);
 
         document.getElementById("loginSection").style.display = "none";
         document.getElementById("portalSection").style.display = "block";
@@ -819,6 +871,8 @@ let currentID = null;
         loadData();
         dataInterval = setInterval(loadData, 5000);
         timerInterval = setInterval(updateTimers, 1000);
+        syncInterval = setInterval(checkSynchronization, 5000);
+        checkSynchronization();
       }
 
       async function loadData() {
@@ -1214,6 +1268,34 @@ let currentID = null;
           loadData();
         } catch (e) {
           alert("Unable to release reservation right now.");
+        }
+      }
+
+      async function extendBorrowLease(bookNo) {
+        if (!currentID || !bookNo) return;
+        try {
+          const res = await fetch("/api/extend_borrow", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(currentToken ? { Authorization: currentToken } : {}),
+            },
+            body: JSON.stringify({
+              book_no: bookNo,
+              school_id: currentID,
+              extra_days: 2,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data?.success) {
+            alert(data.message || "Unable to extend this borrow request.");
+            return;
+          }
+          showPulseToast(`Borrow extended until ${data.expiry}.`);
+          await loadReservations();
+          loadData();
+        } catch (error) {
+          alert("Unable to extend borrowed book right now.");
         }
       }
 
@@ -1686,6 +1768,9 @@ let currentID = null;
         document.getElementById("user_pic").src = "/Profile/default.png";
         switchPortalView("catalog");
         loadData();
+        if (syncInterval) clearInterval(syncInterval);
+        syncInterval = setInterval(checkSynchronization, 5000);
+        checkSynchronization();
 
         window.addEventListener("beforeunload", () => {
           if (!currentToken) return;

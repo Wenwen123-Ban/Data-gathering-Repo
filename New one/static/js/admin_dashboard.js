@@ -100,6 +100,10 @@ let editModal;
     let leaderboardProfileModal;
     let transactionDetailModal;
     let borrowModal;
+    let cameraProofModal;
+    let cameraProofStream = null;
+    let capturedProofBlob = null;
+    let lastSyncFingerprint = null;
     let registrationRequestModal;
     let masterCourses = [];
     let dashboardInitialized = false;
@@ -112,6 +116,7 @@ let editModal;
         leaderboardProfileModal = new bootstrap.Modal(document.getElementById('leaderboardProfileModal'));
         transactionDetailModal = new bootstrap.Modal(document.getElementById('transactionDetailModal'));
         borrowModal = new bootstrap.Modal(document.getElementById('borrowModal'));
+        cameraProofModal = new bootstrap.Modal(document.getElementById('cameraProofModal'));
         registrationRequestModal = new bootstrap.Modal(document.getElementById('registrationRequestModal'));
 
         mountAdminDropdown();
@@ -152,7 +157,9 @@ let editModal;
             try { await loadData(false); } finally { _loadRunning = false; }
         }, 10000);
         setInterval(heartbeatCheck, 15000);
+        setInterval(checkSynchronization, 5000);
         updateLiveClock();
+        checkSynchronization();
     }
 
     function updateLiveClock() {
@@ -174,6 +181,58 @@ let editModal;
     document.addEventListener("DOMContentLoaded", function() {
         initializeDashboard();
     });
+
+    function ensureToastHost() {
+        let host = document.getElementById('syncToastHost');
+        if (host) return host;
+        host = document.createElement('div');
+        host.id = 'syncToastHost';
+        host.style.position = 'fixed';
+        host.style.right = '16px';
+        host.style.bottom = '16px';
+        host.style.zIndex = '9999';
+        host.style.display = 'grid';
+        host.style.gap = '8px';
+        document.body.appendChild(host);
+        return host;
+    }
+
+    function showSyncToast(message, type = 'info') {
+        const host = ensureToastHost();
+        const toast = document.createElement('div');
+        toast.className = 'pulse-notification';
+        toast.textContent = message;
+        if (type === 'success') {
+            toast.style.borderColor = 'rgba(34,197,94,0.6)';
+        }
+        host.appendChild(toast);
+        setTimeout(() => toast.remove(), 2600);
+    }
+
+    async function checkSynchronization() {
+        try {
+            const [books, users, txs, requests] = await Promise.all([
+                fetch('/api/admin/books').then((r) => r.json()).catch(() => []),
+                fetch('/api/admin/users').then((r) => r.json()).catch(() => []),
+                fetch('/api/admin/transactions').then((r) => r.json()).catch(() => []),
+                fetch('/api/admin/registration-requests').then((r) => r.json()).catch(() => []),
+            ]);
+            const fingerprint = JSON.stringify({
+                books: Array.isArray(books) ? books.length : 0,
+                users: Array.isArray(users) ? users.length : 0,
+                txs: Array.isArray(txs) ? txs.length : 0,
+                req: Array.isArray(requests) ? requests.length : 0,
+                txTail: Array.isArray(txs) ? (txs[0]?.request_id || txs[0]?.book_no || '') : '',
+            });
+            if (lastSyncFingerprint && lastSyncFingerprint !== fingerprint) {
+                showSyncToast('Pulse Notification: JSON data updated. Refreshing dashboard...', 'success');
+                loadData(false);
+            }
+            lastSyncFingerprint = fingerprint;
+        } catch (error) {
+            console.warn('checkSynchronization failed', error);
+        }
+    }
 
     async function loadData(resetFilter = false) {
         try {
@@ -1303,7 +1362,79 @@ let editModal;
         } else {
             returnDateInput.removeAttribute('min');
         }
+        const proofPathField = document.getElementById('borrowProofPhotoPath');
+        const proofPreview = document.getElementById('borrowProofPreview');
+        if (proofPathField) proofPathField.value = '';
+        if (proofPreview) proofPreview.style.display = 'none';
+        capturedProofBlob = null;
         borrowModal.show();
+    }
+
+    async function openCameraProofModal() {
+        try {
+            const video = document.getElementById('cameraProofVideo');
+            const snapshot = document.getElementById('cameraProofSnapshot');
+            if (!video) return;
+            if (snapshot) snapshot.style.display = 'none';
+            cameraProofStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+            video.srcObject = cameraProofStream;
+            cameraProofModal?.show();
+        } catch (error) {
+            console.error(error);
+            alert('Unable to open camera on this device/browser.');
+        }
+    }
+
+    function captureProofFrame() {
+        const video = document.getElementById('cameraProofVideo');
+        const canvas = document.getElementById('cameraProofCanvas');
+        const snapshot = document.getElementById('cameraProofSnapshot');
+        if (!video || !canvas || !snapshot) return;
+        const w = video.videoWidth || 1280;
+        const h = video.videoHeight || 720;
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, w, h);
+        snapshot.src = canvas.toDataURL('image/jpeg', 0.9);
+        snapshot.style.display = 'block';
+        canvas.toBlob((blob) => {
+            capturedProofBlob = blob;
+        }, 'image/jpeg', 0.9);
+    }
+
+    async function uploadBorrowProof() {
+        if (!capturedProofBlob) {
+            alert('Capture an image first.');
+            return;
+        }
+        const bookNo = document.getElementById('borrowBookNo')?.value || '';
+        const schoolId = document.getElementById('borrowerId')?.value || '';
+        const formData = new FormData();
+        formData.append('photo', capturedProofBlob, `borrow-proof-${Date.now()}.jpg`);
+        formData.append('book_no', bookNo);
+        formData.append('school_id', schoolId);
+        try {
+            const res = await fetch('/api/upload_borrow_proof', { method: 'POST', body: formData, headers: { 'Authorization': getAuthToken() } });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || 'Upload failed');
+            const proofPathField = document.getElementById('borrowProofPhotoPath');
+            const proofPreview = document.getElementById('borrowProofPreview');
+            if (proofPathField) proofPathField.value = data.photo || '';
+            if (proofPreview) {
+                proofPreview.src = data.url;
+                proofPreview.style.display = 'block';
+            }
+            showSyncToast('Photo proof saved.', 'success');
+            if (cameraProofStream) {
+                cameraProofStream.getTracks().forEach((track) => track.stop());
+                cameraProofStream = null;
+            }
+            cameraProofModal?.hide();
+        } catch (error) {
+            console.error(error);
+            alert('Unable to upload proof photo.');
+        }
     }
 
     function validateBorrowReturnDateSelection() {
@@ -1323,10 +1454,11 @@ let editModal;
         const return_due_date = document.getElementById('borrowReturnDate').value;
         const approved_by = document.getElementById('borrowApprovedBy').value;
         const request_id = document.getElementById('borrowRequestId').value;
+        const proof_photo = document.getElementById('borrowProofPhotoPath')?.value || '';
         if (!return_due_date) return alert('Please set return date.');
         if (!validateBorrowReturnDateSelection()) return;
         try {
-            const res = await apiFetch('/api/process_transaction', { method: 'POST', body: JSON.stringify({ book_no: b_no, action: 'borrow', return_due_date, approved_by, request_id }) });
+            const res = await apiFetch('/api/process_transaction', { method: 'POST', body: JSON.stringify({ book_no: b_no, action: 'borrow', return_due_date, approved_by, request_id, proof_photo }) });
             const data = await res.json();
             if (!data.success) return alert(data.message || 'Unable to borrow book.');
             borrowModal.hide();
@@ -1339,6 +1471,12 @@ let editModal;
     }
 
     document.getElementById('borrowReturnDate')?.addEventListener('change', validateBorrowReturnDateSelection);
+    document.getElementById('cameraProofModal')?.addEventListener('hidden.bs.modal', () => {
+        if (cameraProofStream) {
+            cameraProofStream.getTracks().forEach((track) => track.stop());
+            cameraProofStream = null;
+        }
+    });
 
     async function syncMonitor() {
         const active = masterTransactions.filter((t) => {

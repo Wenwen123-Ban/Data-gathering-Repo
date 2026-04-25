@@ -19,3 +19,11 @@ def landing_site(request):
 
 def welcome_site(request):
     return render(request, 'Welcome_main.html')
+
+
+def creators_site(request):
+    return render(request, 'Creators.html')
+
+
+def user_tablet_site(request):
+    return render(request, 'user_tablet.html')
