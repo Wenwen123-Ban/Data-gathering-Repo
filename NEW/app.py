@@ -7,7 +7,9 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 BASE_DIR = Path(__file__).resolve().parent
-MEDIA_DIR = BASE_DIR / 'media' / 'book_borrow_transaction_photos'
+MEDIA_DIR = Path('/media/book_borrow_transaction_photos')
+if not MEDIA_DIR.exists():
+    MEDIA_DIR = BASE_DIR / 'media' / 'book_borrow_transaction_photos'
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_FILES = {
@@ -36,6 +38,19 @@ def write_json(name, data):
 
 def now_str():
     return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+
+
+def token_is_expired(token):
+    token_row = QR_TOKENS.get(token)
+    if not token_row:
+        return True
+    return datetime.utcnow() > token_row['expires_at']
+
+
+def get_tx_photo_dir(transaction_id):
+    tx_dir = MEDIA_DIR / transaction_id
+    tx_dir.mkdir(parents=True, exist_ok=True)
+    return tx_dir
 
 
 def notify_user(student_id, message):
@@ -82,9 +97,11 @@ def admin():
 
 @app.route('/mobile/borrow-proof/<token>')
 def mobile_borrow_proof(token):
-    tx_id = QR_TOKENS.get(token)
-    if not tx_id:
+    token_row = QR_TOKENS.get(token)
+    if not token_row or token_is_expired(token):
+        QR_TOKENS.pop(token, None)
         return jsonify({'success': False, 'message': 'Invalid or expired link'}), 404
+    tx_id = token_row['tx_id']
     return render_template('mobile_qr_capture.html', token=token, transaction_id=tx_id)
 
 
@@ -186,6 +203,7 @@ def extend_reservation():
         if restricted:
             return jsonify({'success': False, 'message': reason}), 400
         tx['reservation_date'] = extended.strftime('%Y-%m-%d')
+        tx['extension_count'] = int(tx.get('extension_count', 0)) + 1
         tx['updated_at'] = now_str()
         notify_user(tx['student_id'], f"Reservation {tx_id} extended to {tx['reservation_date']}.")
         write_json('borrow_transactions', txs)
@@ -205,13 +223,17 @@ def approve_borrow():
             tx['approval_date'] = now_str()
             tx['status'] = 'approved'
             token = secrets.token_urlsafe(18)
-            QR_TOKENS[token] = tx_id
+            QR_TOKENS[token] = {
+                'tx_id': tx_id,
+                'expires_at': datetime.utcnow() + timedelta(minutes=15),
+            }
             notify_user(tx['student_id'], f"Borrow {tx_id} approved by {admin_id}.")
             write_json('borrow_transactions', txs)
             return jsonify({
                 'success': True,
                 'temporary_link': f"/mobile/borrow-proof/{token}",
                 'qr_payload': f"/mobile/borrow-proof/{token}",
+                'expires_in_minutes': 15,
                 'sync_toast': 'Borrow approved + QR link generated',
             })
     return jsonify({'success': False}), 404
@@ -219,9 +241,11 @@ def approve_borrow():
 
 @app.post('/api/mobile/upload-proof/<token>')
 def upload_mobile_proof(token):
-    tx_id = QR_TOKENS.get(token)
-    if not tx_id:
+    token_row = QR_TOKENS.get(token)
+    if not token_row or token_is_expired(token):
+        QR_TOKENS.pop(token, None)
         return jsonify({'success': False, 'message': 'Invalid token'}), 404
+    tx_id = token_row['tx_id']
 
     payload = request.get_json(force=True)
     image_data = payload.get('image_data', '')
@@ -230,19 +254,19 @@ def upload_mobile_proof(token):
 
     _, encoded = image_data.split(',', 1)
     image_bytes = base64.b64decode(encoded)
-    filename = f'{tx_id}_{int(datetime.utcnow().timestamp())}.jpg'
-    out_path = MEDIA_DIR / filename
+    filename = f'{int(datetime.utcnow().timestamp())}.jpg'
+    out_path = get_tx_photo_dir(tx_id) / filename
     out_path.write_bytes(image_bytes)
 
     txs = read_json('borrow_transactions')
     for tx in txs:
         if tx.get('transaction_id') == tx_id:
-            tx['proof_image_path'] = f'/media/book_borrow_transaction_photos/{filename}'
+            tx['proof_image_path'] = f'/media/book_borrow_transaction_photos/{tx_id}/{filename}'
             tx['updated_at'] = now_str()
             notify_user(tx['student_id'], f'Proof image uploaded for transaction {tx_id}.')
             break
     write_json('borrow_transactions', txs)
-    return jsonify({'success': True, 'path': f'/media/book_borrow_transaction_photos/{filename}'})
+    return jsonify({'success': True, 'path': f'/media/book_borrow_transaction_photos/{tx_id}/{filename}'})
 
 
 @app.get('/api/admin/live_log')

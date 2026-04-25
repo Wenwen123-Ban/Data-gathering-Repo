@@ -48,7 +48,7 @@ async function approveBorrow(tx){
   const data = await resp.json();
   if(data.success){
     syncToast(data.sync_toast);
-    alert(`Temporary Link (use on mobile): ${location.origin}${data.temporary_link}`);
+    alert(`Temporary Link (use on mobile within ${data.expires_in_minutes} minutes): ${location.origin}${data.temporary_link}`);
     loadLiveLog();
   }
 }
