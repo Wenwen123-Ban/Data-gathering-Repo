@@ -1,0 +1,18 @@
+[
+  {
+    "student_id": "stu-001",
+    "name": "Alyssa Cruz",
+    "avatar_path": "/media/avatars/stu-001.png",
+    "school_level": "College",
+    "year": "3",
+    "course": "BS Information Technology",
+    "contact": "+63-900-111-2233",
+    "notifications": [
+      {
+        "message": "Welcome to LBAS v3.1 reconstruction branch.",
+        "timestamp": "2026-04-25 00:00:00",
+        "unread": true
+      }
+    ]
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "date": "2026-04-29",
+    "action": "ban",
+    "reason": "Phase 9 maintenance blackout"
+  },
+  {
+    "date": "2026-04-30",
+    "action": "lift",
+    "reason": "Manual override for final exams"
+  }
+]

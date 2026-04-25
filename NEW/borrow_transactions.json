@@ -1,0 +1,12 @@
+[
+  {
+    "transaction_id": "BTX-0001",
+    "student_id": "stu-001",
+    "book_id": "BK-101",
+    "approval_admin_id": "",
+    "proof_image_path": "",
+    "reservation_date": "2026-04-26",
+    "approval_date": "",
+    "status": "reserved"
+  }
+]

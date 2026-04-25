@@ -1,0 +1,60 @@
+<!doctype html>
+<html><head>
+  <meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>LBAS Admin Dashboard - Borrowed Book Management</title>
+  <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>
+</head>
+<body class='bg-light'>
+<div class='container py-4'>
+  <h2>Admin Dashboard Enhancements</h2>
+  <div id='toastArea' class='position-fixed top-0 end-0 p-3' style='z-index: 2000'></div>
+
+  <div class='card mb-3'><div class='card-body'>
+    <h5>Registration Requests Pipeline (NEW flow)</h5>
+    <table class='table' id='rrTable'><thead><tr><th>ID</th><th>Name</th><th>Level/Year/Course</th><th>Contact</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
+  </div></div>
+
+  <div class='card'><div class='card-body'>
+    <h5>Borrowed Book Management → Live Log Chart</h5>
+    <table class='table' id='logTable'><thead><tr><th>Tx</th><th>Student</th><th>Book</th><th>Status</th><th>Approved By</th><th>Proof</th><th>Action</th></tr></thead><tbody></tbody></table>
+  </div></div>
+</div>
+<script>
+function syncToast(message){
+  const id = `t-${Date.now()}`;
+  document.getElementById('toastArea').insertAdjacentHTML('beforeend', `<div id="${id}" class="toast text-bg-success"><div class="toast-body">🔄 Sync: ${message}</div></div>`);
+  new bootstrap.Toast(document.getElementById(id)).show();
+}
+
+async function loadRequests(){
+  const rows = await fetch('/api/registration_requests').then(r=>r.json());
+  const body = document.querySelector('#rrTable tbody'); body.innerHTML='';
+  rows.forEach(r => body.insertAdjacentHTML('beforeend', `<tr><td>${r.request_id}</td><td>${r.name}</td><td>${r.school_level}/${r.year}/${r.course}</td><td>${r.contact}</td><td>${r.status}</td><td>${r.status==='pending'?`<button class='btn btn-sm btn-primary' onclick="approveRequest('${r.request_id}')">Approve</button>`:''}</td></tr>`));
+}
+
+async function approveRequest(id){
+  const resp = await fetch(`/api/admin/registration_requests/${id}/approve`, {method:'POST'});
+  const data = await resp.json(); if(data.success){syncToast('Registration approved'); loadRequests();}
+}
+
+async function loadLiveLog(){
+  const rows = await fetch('/api/admin/live_log').then(r=>r.json());
+  const body = document.querySelector('#logTable tbody'); body.innerHTML = '';
+  rows.forEach(r=>body.insertAdjacentHTML('beforeend', `<tr><td>${r.transaction_id}</td><td>${r.student_id}</td><td>${r.book_id}</td><td>${r.status}</td><td>${r.approval_admin_id||'-'}</td><td>${r.proof_image_path?`<a href='${r.proof_image_path}' target='_blank'>Open proof</a>`:'-'}</td><td><button class='btn btn-sm btn-outline-primary' onclick="approveBorrow('${r.transaction_id}')">Approve + QR</button></td></tr>`));
+}
+
+async function approveBorrow(tx){
+  const resp = await fetch('/api/admin/borrow/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transaction_id:tx,admin_id:'admin-001'})});
+  const data = await resp.json();
+  if(data.success){
+    syncToast(data.sync_toast);
+    alert(`Temporary Link (use on mobile): ${location.origin}${data.temporary_link}`);
+    loadLiveLog();
+  }
+}
+
+Promise.all([loadRequests(), loadLiveLog()]);
+setInterval(loadLiveLog, 5000);
+</script>
+<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'></script>
+</body></html>
