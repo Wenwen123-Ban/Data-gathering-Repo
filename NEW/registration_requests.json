@@ -1,0 +1,14 @@
+[
+  {
+    "request_id": "RR-0001",
+    "name": "Alyssa Cruz",
+    "student_id": "stu-001",
+    "school_level": "College",
+    "year": "3",
+    "course": "BS Information Technology",
+    "contact": "+63-900-111-2233",
+    "avatar_path": "/media/avatars/stu-001.png",
+    "status": "pending",
+    "created_at": "2026-04-25 00:00:00"
+  }
+]
