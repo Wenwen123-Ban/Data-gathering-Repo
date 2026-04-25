@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="50" fill="#5b8dd9"/>
+  <!-- Ears -->
+  <polygon points="28,38 36,18 48,36" fill="#3a6bbf"/>
+    <polygon points="72,38 64,18 52,36" fill="#3a6bbf"/>
+  <!-- Face circle -->
+  <circle cx="50" cy="58" r="28" fill="#ddeeff"/>
+  <!-- Eye patches (panda/owl) -->
+  
+  <!-- Eyes -->
+  <circle cx="38" cy="50" r="4" fill="#1a3a7a"/>
+  <circle cx="62" cy="50" r="4" fill="#1a3a7a"/>
+  <!-- Eye shine -->
+  <circle cx="40" cy="48" r="1.5" fill="white" opacity="0.7"/>
+  <circle cx="64" cy="48" r="1.5" fill="white" opacity="0.7"/>
+  <!-- Nose -->
+  <ellipse cx="50" cy="62" rx="4" ry="3" fill="#e899c0"/>
+  <!-- Whiskers -->
+  <line x1="30" y1="60" x2="46" y2="63" stroke="#888" stroke-width="1.2" opacity="0.6"/><line x1="30" y1="65" x2="46" y2="65" stroke="#888" stroke-width="1.2" opacity="0.6"/><line x1="70" y1="60" x2="54" y2="63" stroke="#888" stroke-width="1.2" opacity="0.6"/><line x1="70" y1="65" x2="54" y2="65" stroke="#888" stroke-width="1.2" opacity="0.6"/>
+  <!-- Mouth -->
+  <path d="M 44 68 Q 50 74 56 68" stroke="#888" stroke-width="1.5" fill="none" opacity="0.7"/>
+  <!-- Body/shoulder arc at bottom -->
+  <ellipse cx="50" cy="96" rx="32" ry="18" fill="#5b8dd9" opacity="0.85"/>
+  <ellipse cx="50" cy="96" rx="22" ry="13" fill="#ddeeff" opacity="0.7"/>
+</svg>
