@@ -1178,3 +1178,26 @@
   color: #facc15 !important;
   transform: scale(1.15) !important;
 }
+
+.pulse-notification {
+  background: rgba(15, 23, 42, 0.95);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 213, 79, 0.58);
+  border-radius: 12px;
+  padding: 10px 14px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+  animation: lbas-toast-pulse 1.15s ease-in-out 2;
+}
+
+@keyframes lbas-toast-pulse {
+  0% { opacity: 0; transform: translateY(8px) scale(0.98); }
+  30% { opacity: 1; transform: translateY(0) scale(1); }
+  60% { opacity: 1; transform: translateY(0) scale(1.01); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.reservation-action-btn {
+  min-height: 42px;
+  border-radius: 999px !important;
+  font-weight: 700;
+}

@@ -113,6 +113,9 @@
         <a class="nav-link text-white-50" id="linkInventory" onclick="switchView('inventory')">
             <span><i class="fas fa-book-reader me-3"></i>Inventory</span>
         </a>
+        <a class="nav-link text-white-50" id="linkBorrowedBookManagement" onclick="switchView('inventory')">
+            <span><i class="fas fa-hand-holding-heart me-3"></i>Borrowed Book Management</span>
+        </a>
         <a class="nav-link text-white-50" id="linkPostHome" onclick="switchView('postHome')">
             <span><i class="fas fa-house-circle-check me-3"></i>Post for Home</span>
         </a>
@@ -682,11 +685,39 @@
                     <label class="small fw-bold mb-1">Date to be Returned</label>
                     <input id="borrowReturnDate" type="date" class="form-control">
                 </div>
+                <div class="mb-2">
+                    <label class="small fw-bold mb-1">Photo Proof (Admin Phone Camera)</label>
+                    <button type="button" class="btn btn-outline-info w-100 fw-bold mb-2" onclick="openCameraProofModal()">
+                        <i class="fas fa-camera me-2"></i>Capture Proof
+                    </button>
+                    <input id="borrowProofPhotoPath" type="text" class="form-control mb-2" placeholder="No proof captured yet" readonly>
+                    <img id="borrowProofPreview" alt="Borrow proof preview" style="display:none;width:100%;max-height:130px;object-fit:cover;border-radius:10px;border:1px solid rgba(255,255,255,0.18);" />
+                </div>
                 <div class="mb-3">
                     <label class="small fw-bold mb-1">Request ID</label>
                     <input id="borrowRequestId" type="text" class="form-control" readonly>
                 </div>
                 <button class="btn btn-primary w-100 fw-bold" onclick="submitBorrowForm()">Confirm Borrow</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="cameraProofModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4" style="background:#0f172a;border:1px solid rgba(255,255,255,0.1)!important;">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="fw-bold mb-0" style="color:#f1f5f9;">Admin Phone Camera Proof</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <video id="cameraProofVideo" autoplay playsinline muted style="width:100%;border-radius:10px;border:1px solid rgba(255,255,255,0.2);"></video>
+                <canvas id="cameraProofCanvas" style="display:none;"></canvas>
+                <img id="cameraProofSnapshot" alt="Captured proof snapshot" style="display:none;width:100%;margin-top:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.2);" />
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-light rounded-pill" onclick="captureProofFrame()">Capture</button>
+                <button type="button" class="btn btn-info rounded-pill fw-bold" onclick="uploadBorrowProof()">Save Proof</button>
             </div>
         </div>
     </div>

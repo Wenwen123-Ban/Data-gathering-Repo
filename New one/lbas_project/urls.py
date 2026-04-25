@@ -10,6 +10,8 @@ urlpatterns = [
     path('lbas', views.lbas_site),
     path('landing', views.landing_site),
     path('welcome', views.welcome_site),
+    path('creators', views.creators_site),
+    path('user-tablet', views.user_tablet_site),
     path('api/', include('api.urls')),
 
     # Serve Profile/ (uploaded photos) — works with BOTH runserver AND Waitress

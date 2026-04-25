@@ -57,6 +57,8 @@ urlpatterns = [
     path('reserve', transactions.api_reserve),
     path('process_transaction', transactions.api_process_transaction),
     path('cancel_reservation', transactions.api_cancel_reservation),
+    path('extend_borrow', transactions.api_extend_borrow),
+    path('upload_borrow_proof', transactions.api_upload_borrow_proof),
 
     # Registration requests
     path('register_request', registration.api_register_request),
